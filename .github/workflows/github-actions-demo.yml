@@ -3,7 +3,7 @@ name: Deploy with Terraform Cloud and Vault
 on:
   push:
     branches:
-      - main
+      - adding_github_actions
 
 jobs:
   deploy:
@@ -17,34 +17,68 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
 
-      - name: Configure AWS Credentials using OIDC
-        uses: aws-actions/configure-aws-credentials@v1
+    #   - name: Authenticate with Vault
+    #     id: secrets
+    #     uses: hashicorp/vault-action@v3.0.0
+    #     with:
+    #       url: ${{ secrets.VAULT_ADDR }}
+    #       tlsSkipVerify: true
+    #       namespace: admin
+    #       method: approle
+    #       roleId: ${{ secrets.VAULT_ROLE_ID }}
+    #       secretId: ${{ secrets.VAULT_SECRET_ID }}
+    #       exportEnv: false
+    #       secrets: |
+    #         aws/creds/deploy access_key | AWS_ACCESS_KEY_ID ;
+    #         aws/creds/deploy secret_key | AWS_SECRET_ACCESS_KEY
+
+    #   - name: Waiting until AWS credentials are valid
+    #     run: |
+    #           echo "Checking if credentials are valid..."
+    #           retries=12
+      
+    #           while ((retries > 0)); do
+    #             echo "${retries} attempts left..."
+    #             sleep 5
+                
+    #             aws sts get-caller-identity >/dev/null 2>/dev/null && break
+      
+    #             echo "Credentials not yet valid, let's wait 5 seconds and retry."
+    #             ((retries --))
+    #           done
+      
+    #           if ((retries == 0 )); then
+    #             echo "The AWS Credentials never started working even after 1 min, so exiting..."
+    #             echo "Make sure you have added the permission 'iam:getUser' to the policy."
+    #             exit 1
+    #           else
+    #             echo "AWS Credentials are valid."
+    #             sleep 5
+    #           fi
+      
+    #     shell: bash
+    #     env:
+    #         AWS_ACCESS_KEY_ID: ${{ steps.secrets.outputs.AWS_ACCESS_KEY_ID }}
+    #         AWS_SECRET_ACCESS_KEY: ${{ steps.secrets.outputs.AWS_SECRET_ACCESS_KEY }}
+    #         AWS_SESSION_TOKEN: ""
+    #         AWS_REGION: eu-west-2
+
+    #   - name: Configure AWS credentials
+    #     uses: aws-actions/configure-aws-credentials@v1
+    #     with:
+    #         aws-access-key-id: ${{ steps.secrets.outputs.AWS_ACCESS_KEY_ID }}
+    #         aws-secret-access-key: ${{ steps.secrets.outputs.AWS_SECRET_ACCESS_KEY }}
+    #         aws-region: eu-west-2
+    #         role-duration-seconds: 900
+    #         role-skip-session-tagging: true          
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
         with:
-          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/GitHubActionsOIDCRole
-          aws-region: eu-west-2
-
-      - name: Authenticate with Vault using AppRole
-        env:
-          VAULT_ADDR: ${{ secrets.VAULT_ADDR }}
-          VAULT_ROLE_ID: ${{ secrets.VAULT_ROLE_ID }}
-          VAULT_SECRET_ID: ${{ secrets.VAULT_SECRET_ID }}
-        run: |
-          vault login -method=approle role_id=$VAULT_ROLE_ID secret_id=$VAULT_SECRET_ID > /dev/null
-
-      - name: Fetch AWS Credentials from Vault
-        env:
-          VAULT_ADDR: ${{ secrets.VAULT_ADDR }}
-        run: |
-          # Retrieve AWS credentials from Vault
-          response=$(vault read -format=json aws/creds/deploy)
-          aws_access_key_id=$(echo "$response" | jq -r '.data.access_key')
-          aws_secret_access_key=$(echo "$response" | jq -r '.data.secret_key')
-          # Set AWS credentials as environment variables
-          echo "AWS_ACCESS_KEY_ID=$aws_access_key_id" >> $GITHUB_ENV
-          echo "AWS_SECRET_ACCESS_KEY=$aws_secret_access_key" >> $GITHUB_ENV
-
-      - name: Run Terraform Init
+              cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+    
+      - name: Initialize Terraform
         run: terraform init
-
-      - name: Run Terraform Apply
+    
+      - name: Apply Terraform
         run: terraform apply -auto-approve

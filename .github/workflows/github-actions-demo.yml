@@ -1,18 +1,50 @@
-name: GitHub Actions Demo
-run-name: ${{ github.actor }} is testing out GitHub Actions 🚀
-on: [push]
+name: Deploy with Terraform Cloud and Vault
+
+on:
+  push:
+    branches:
+      - main
+
 jobs:
-  Explore-GitHub-Actions:
+  deploy:
     runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write
+      contents: read
+
     steps:
-      - run: echo "🎉 The job was automatically triggered by a ${{ github.event_name }} event."
-      - run: echo "🐧 This job is now running on a ${{ runner.os }} server hosted by GitHub!"
-      - run: echo "🔎 The name of your branch is ${{ github.ref }} and your repository is ${{ github.repository }}."
-      - name: Check out repository code
-        uses: actions/checkout@v4
-      - run: echo "💡 The ${{ github.repository }} repository has been cloned to the runner."
-      - run: echo "🖥️ The workflow is now ready to test your code on the runner."
-      - name: List files in the repository
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Configure AWS Credentials using OIDC
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/GitHubActionsOIDCRole
+          aws-region: eu-west-2
+
+      - name: Authenticate with Vault using AppRole
+        env:
+          VAULT_ADDR: ${{ secrets.VAULT_ADDR }}
+          VAULT_ROLE_ID: ${{ secrets.VAULT_ROLE_ID }}
+          VAULT_SECRET_ID: ${{ secrets.VAULT_SECRET_ID }}
         run: |
-          ls ${{ github.workspace }}
-      - run: echo "🍏 This job's status is ${{ job.status }}."
+          vault login -method=approle role_id=$VAULT_ROLE_ID secret_id=$VAULT_SECRET_ID > /dev/null
+
+      - name: Fetch AWS Credentials from Vault
+        env:
+          VAULT_ADDR: ${{ secrets.VAULT_ADDR }}
+        run: |
+          # Retrieve AWS credentials from Vault
+          response=$(vault read -format=json aws/creds/deploy)
+          aws_access_key_id=$(echo "$response" | jq -r '.data.access_key')
+          aws_secret_access_key=$(echo "$response" | jq -r '.data.secret_key')
+          # Set AWS credentials as environment variables
+          echo "AWS_ACCESS_KEY_ID=$aws_access_key_id" >> $GITHUB_ENV
+          echo "AWS_SECRET_ACCESS_KEY=$aws_secret_access_key" >> $GITHUB_ENV
+
+      - name: Run Terraform Init
+        run: terraform init
+
+      - name: Run Terraform Apply
+        run: terraform apply -auto-approve

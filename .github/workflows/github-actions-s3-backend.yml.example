@@ -3,7 +3,7 @@ name: Deploy with Terraform Cloud and Vault
 on:
   push:
     branches:
-      - adding_github_actions
+      - main
 
 jobs:
   deploy:
